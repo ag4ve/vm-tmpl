@@ -1,27 +1,53 @@
 #!/bin/bash
 
 ROOTDIR=/mnt/chroot
-NBDDEV=/dev/nbd0
 QCOW=./template.qcow2
 FSTYPE=ext4
 SIZE=10G
 
-
-if [ $GID -ne 0 || $UID -ne 0 ]; then
-    echo "you must be root";
+if [ $GID -eq 0 || $UID -eq 0 ]; then
+    echo "Please don't run this as root.";
     exit 1;
 fi
 
+if [ -z $(mount | grep $ROOTDIR) ]; then
+    echo "Mount point in use. Exiting.";
+    exit 1;
+fi
 
+echo "Creating qcow2 image...."
 qemu-img create -f qcow2 $QCOW $SIZE
 
-sudo modprobe nbd
+echo "Superuser will be required for some things, hopefully we can cache the password long enough"
+sudo -v
 
-sudo start-stop-daemon --start -b -exec qemu-nbd -- --nocache --connect=$NBDPID $QCOW
+echo "Loading NBD kernel module"
+if ! echo "modprobe nbd 2> /dev/null"; then
+    echo "Failed to load NBD module. Exiting.";
+    exit 1;
+fi
 
+for NBDDEV in $(find /dev -name "nbd*"); do 
+    echo "Testing $NBDDEV"; 
+    if [ -z $(nbd-client -c $TEST) ]; then 
+        echo "$NBDDEV OK"; 
+        break; 
+    fi 
+done
+
+if [ -z $NBDDEV ]; then
+    echo "No unused NBD device found. Exiting.";
+    exit 1;
+fi
+
+echo "Starting NBD daemon"
+sudo start-stop-daemon --start -b -exec qemu-nbd -- --nocache $QCOW
+
+echo "Starting NBD client"
 sudo nbd-client localhost 1024 $NBDDEV
 
-echo -e "echo \",,L,*\" | sfdisk -D $NBDDEV" | sudo sh
+echo "Partitioning and formatting device."
+echo "echo \",,L,*\" | sfdisk -D $NBDDEV" | sudo sh
 mkfs -t ext4 $NBDDEV
 
 mkdir -p $CHROOT
