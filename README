@@ -1,0 +1,13 @@
+
+This is used to create a minimal virtual machine (template) that can be cloned in order to bring up guests quickly.
+
+REQUIREMENTS:
+* multistrap
+* schroot
+* qemu-img
+* qemu-nbd
+* nbd-client
+
+you'll need to move the schroot.conf file under /etc/schroot/chroot.d/ or put it into your /etc/schroot/schroot.conf file. You'll also need to edit the schroot.conf file so that it allows your username access to the chroot.
+
+
