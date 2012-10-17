@@ -1,9 +1,22 @@
 #!/bin/bash
 
-ROOTDIR=/mnt/chroot
 QCOW=./template.qcow2
-FSTYPE=ext4
 SIZE=10G
+FSTYPE=ext4
+
+# mount point has to conform to schroot.conf
+ROOTDIR=/mnt/chroot
+
+if [ -z $1 ]; then
+    QCOW=$1
+fi
+if [ -z $2 ]; then
+    SIZE=$2
+fi
+if [ -z $3 ]; then
+    FSTYPE=$3
+fi
+
 
 if [ $GID -eq 0 || $UID -eq 0 ]; then
     echo "Please don't run this as root.";
@@ -84,6 +97,10 @@ schroot -d / -c multistrap grub-install --boot-directory=/boot $NBDDEV
 schroot -d / -c multistrap update-grub
 
 
+echo "Unmounting"
 sudo umount $CHROOT
+echo "Breaking down NBD"
 sudo nbd-client -d $NBDDEV
+
+echo "Everything is done"
 
