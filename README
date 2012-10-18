@@ -8,6 +8,8 @@ REQUIREMENTS:
 * qemu-nbd
 * nbd-client
 
-you'll need to move the schroot.conf file under /etc/schroot/chroot.d/ or put it into your /etc/schroot/schroot.conf file. You'll also need to edit the schroot.conf file so that it allows your username access to the chroot.
+You'll need to move the schroot.conf file under /etc/schroot/chroot.d/ or put it into your /etc/schroot/schroot.conf file. You'll also need to edit the schroot.conf file so that it allows your username access to the chroot.
 
+Large portions of this are based on what i found here:
+https://github.com/nzmichaelh/wrdk/blob/master/doc/Using-schroot.text
 
