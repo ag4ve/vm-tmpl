@@ -7,15 +7,20 @@ FSTYPE=ext4
 # mount point has to conform to schroot.conf
 ROOTDIR=/mnt/chroot
 
-if [ -z $1 ]; then
+if [ ! -z $1 ]; then
     QCOW=$1
 fi
-if [ -z $2 ]; then
+if [ ! -z $2 ]; then
     SIZE=$2
 fi
-if [ -z $3 ]; then
+if [ ! -z $3 ]; then
     FSTYPE=$3
 fi
+
+echo "File: $QCOW"
+echo "Size: $SIZE"
+echo "FS type: $FSTYPE"
+echo "Mount point: $ROOTDIR"
 
 
 if [ $UID -eq 0 ]; then
@@ -59,7 +64,7 @@ if [ -z $NBDDEV ]; then
 fi
 
 echo "Starting NBD daemon"
-sudo start-stop-daemon --start -b --exec /usr/bin/qemu-nbd -- --nocache $QCOW
+echo "start-stop-daemon --start -b --exec /usr/bin/qemu-nbd -- --nocache $QCOW" | sudo sh
 
 echo "Starting NBD client"
 sudo nbd-client localhost 1024 $NBDDEV
