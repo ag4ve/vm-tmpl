@@ -18,12 +18,17 @@ if [ -z $3 ]; then
 fi
 
 
-if [ $GID -eq 0 || $UID -eq 0 ]; then
+if [ $UID -eq 0 ]; then
     echo "Please don't run this as root.";
     exit 1;
 fi
 
-if [ -z $(mount | grep $ROOTDIR) ]; then
+if [ -e $QCOW ]; then
+    echo "QCOW file already exists";
+    exit 1;
+fi
+
+if mountpoint -q $ROOTDIR; then
     echo "Mount point in use. Exiting.";
     exit 1;
 fi
@@ -35,14 +40,14 @@ echo "Superuser will be required for some things, hopefully we can cache the pas
 sudo -v
 
 echo "Loading NBD kernel module"
-if ! echo "modprobe nbd 2> /dev/null"; then
+if ! echo "modprobe nbd > /dev/null 2>&1" | sudo sh; then
     echo "Failed to load NBD module. Exiting.";
     exit 1;
 fi
 
-for NBDDEV in $(find /dev -name "nbd*"); do 
+for NBDDEV in $(find /dev -name "nbd?"); do 
     echo "Testing $NBDDEV"; 
-    if [ -z $(nbd-client -c $TEST) ]; then 
+    if [ -z $(nbd-client -c $NBDDEV) ]; then 
         echo "$NBDDEV OK"; 
         break; 
     fi 
@@ -54,17 +59,17 @@ if [ -z $NBDDEV ]; then
 fi
 
 echo "Starting NBD daemon"
-sudo start-stop-daemon --start -b -exec qemu-nbd -- --nocache $QCOW
+sudo start-stop-daemon --start -b --exec /usr/bin/qemu-nbd -- --nocache $QCOW
 
 echo "Starting NBD client"
 sudo nbd-client localhost 1024 $NBDDEV
 
 echo "Partitioning and formatting device."
 echo "echo \",,L,*\" | sfdisk -D $NBDDEV" | sudo sh
-mkfs -t ext4 $NBDDEV
+sudo mkfs -t ext4 $NBDDEV
 
 mkdir -p $CHROOT
-mount -o uid=$UID $NBDDEV $CHROOT
+sudo mount -o uid=$UID $NBDDEV $CHROOT
 
 mkdir $CHROOT/{dev,proc,sys}
 mkdir -p $CHROOT/boot/grub
