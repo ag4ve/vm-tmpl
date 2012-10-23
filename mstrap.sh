@@ -5,7 +5,7 @@ SIZE=10G
 FSTYPE=ext4
 
 # mount point has to conform to schroot.conf
-ROOTDIR=/mnt/chroot
+CHROOT=/mnt/chroot
 
 if [ ! -z $1 ]; then
     QCOW=$1
@@ -20,7 +20,7 @@ fi
 echo "File: $QCOW"
 echo "Size: $SIZE"
 echo "FS type: $FSTYPE"
-echo "Mount point: $ROOTDIR"
+echo "Mount point: $CHROOT"
 
 
 if [ $UID -eq 0 ]; then
@@ -33,7 +33,7 @@ if [ -e $QCOW ]; then
     exit 1;
 fi
 
-if mountpoint -q $ROOTDIR; then
+if mountpoint -q $CHROOT; then
     echo "Mount point in use. Exiting.";
     exit 1;
 fi
@@ -64,17 +64,17 @@ if [ -z $NBDDEV ]; then
 fi
 
 echo "Starting NBD daemon"
-echo "start-stop-daemon --start -b --exec /usr/bin/qemu-nbd -- --nocache $QCOW" | sudo sh
-
-echo "Starting NBD client"
-sudo nbd-client localhost 1024 $NBDDEV
+sudo qemu-nbd --nocache -c $NBDDEV $QCOW
 
 echo "Partitioning and formatting device."
 echo "echo \",,L,*\" | sfdisk -D $NBDDEV" | sudo sh
 sudo mkfs -t ext4 $NBDDEV
 
-mkdir -p $CHROOT
-sudo mount -o uid=$UID $NBDDEV $CHROOT
+sudo mkdir -p $CHROOT
+if ! echo "mount -o uid=$UID $NBDDEV $CHROOT" | sudo sh; then
+    echo "Failed to mount $NBDDEV on $CHROOT. Exiting.";
+    exit 1;
+fi
 
 mkdir $CHROOT/{dev,proc,sys}
 mkdir -p $CHROOT/boot/grub
@@ -85,7 +85,6 @@ mkdir -p $CHROOT/root/.ssh
 sudo mount -t proc proc $CHROOT/proc
 sudo mount -t sysfs sysfs $CHROOT/sys
 sudo mount --bind /dev $CHROOT/dev
-sudo mount -t tmpfs tmpfs $CHROOT/dev/shm
 sudo mount -t devpts devpts $CHROOT/dev/pts
 
 multistrap -f ./multistrap.config
@@ -103,7 +102,7 @@ echo "Etc/UTC"  > $CHROOT/etc/timezone
 
 schroot -d / -c multistrap locale-gen en_US.UTF-8
 schroot -d / -c multistrap dpkg-reconfigure -f noninteractive -a
-schroot -d / -c multistrap grub-install --boot-directory=/boot $NBDDEV
+schroot -d / -c multistrap grub-install $NBDDEV
 schroot -d / -c multistrap update-grub
 
 
