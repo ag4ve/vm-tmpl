@@ -12,4 +12,8 @@ You'll need to move the schroot.conf file under /etc/schroot/chroot.d/ or put it
 
 Large portions of this are based on what i found here:
 https://github.com/nzmichaelh/wrdk/blob/master/doc/Using-schroot.text
+http://blog.worldturner.com/worldturner/entry/creating_a_bootable_virtual_appliance
+
+TODO: make schroot export DEBIAN_FRONTEND=noninteractive
+
 
