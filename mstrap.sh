@@ -52,105 +52,167 @@ echo "Partitioning $DISK"
 parted -s $DISK mklabel msdos
 parted -s --align=none $DISK mkpart primary 64s 100%
 
-for BLOCK in $(find /dev -name "loop[0-9]*"); do 
-    echo "Testing $BLOCK"; 
-    if echo "losetup $BLOCK > /dev/null 2>&1" | sudo sh; then 
-        echo "$BLOCK OK"; 
-        break; 
-    fi 
-done
+sudo sh << SU || exit 1
 
-if [ -z $BLOCK ]; then
-    echo "No unused NBD device found. Exiting.";
-    exit 1;
-fi
+    # If chroot config exists, lets see if we want to make a backup
+    if [ -e /etc/schroot/chroot.d/multistrap.conf ]; then
+        echo "Found chroot config. Make backup?";
+        read ANS;
+        if [ $(echo $ANS | awk '{ print tolower(substr($0,1,1)) }') != 'y' ]; then
+            cp -f /etc/schroot/chroot.d/multistrap.conf ./schroot.bak-$(date +%Y%m%d%H%M%S);
+        fi
+    fi
 
-echo "Using loop device $BLOCK"
-if ! sudo losetup $BLOCK $DISK; then
-    echo "Failed to setup loop device";
-    exit 1;
-fi
+    # create schroot config file for multistrap environment
+    cat << SCHROOTCONF | sed -e 's/^ *//g' > /etc/schroot/chroot.d/multistrap.conf
+        [multistrap]
+        description=Multistrap chroot config
+        directory=$CHROOT
+        personality=linux32
+        root-users=$(whoami)
+        type=plain
+        users=$(whoami)
+    SCHROOTCONF
 
-#   logical_start_sector num_sectors target_type target_args
-# the formula for num_sectors is <size in gigs> * 1024^3 (gig in bytes) / 512 . 512 because:
-#   Devices are created by loading a table that specifies a target 
-#   for each sector (512 bytes) in the logical device.
-echo "Creating partition table";
-if ! echo "echo \"0 $[$SIZE*2097152] linear $BLOCK 0\" | dmsetup create $MAPPER > /dev/null 2>&1" \
-        | sudo sh; then
-    echo "Failed to create device $MAPPER mapper for $BLOCK";
-    exit 1;
-fi
-
-echo "Creating mapper device for partition";
-if ! echo "kpartx -a /dev/mapper/$MAPPER" | sudo sh; then
-    echo "Failed to create device for the /dev/mapper/$MAPPER partition";
-    exit 1;
-fi
-
-echo "Copying mapper device to /dev/m$MAPPER";
-if [ -e /dev/m$MAPPER ] || [ -e /dev/m$MAPPER\1 ]; then
-    echo "/dev/m$MAPPER or /dev/m$MAPPER\1 exist";
-    exit 1;
-else
-    sudo ln -s $(readlink -f /dev/mapper/$MAPPER) /dev/m$MAPPER;
-    sudo ln -s $(readlink -f /dev/mapper/$MAPPER\1) /dev/m$MAPPER\1;
-fi
-
-echo "Creating filesystem";
-if ! echo "mkfs -t $FSTYPE /dev/m$MAPPER\1 > /dev/null 2>&1" | sudo sh; then
-    echo "Failed to create $FSTYPE on /dev/m$MAPPER";
-    exit 1;
-fi
-
-if [ -e $CHROOT ]; then
-    echo "$CHROOT already exists. Moving on... ";
-else
-    if ! echo "mkdir -p $CHROOT" | sudo sh; then
-        echo "Failed to create chroot directory $CHROOT";
+    # find free loop device
+    for BLOCK in $(find /dev -name "loop[0-9]*"); do 
+        echo "Testing $BLOCK"; 
+        if losetup $BLOCK > /dev/null 2>&1; then 
+            echo "$BLOCK OK"; 
+            break; 
+        fi 
+    done
+    
+    if [ -z $BLOCK ]; then
+        echo "No unused NBD device found. Exiting.";
         exit 1;
     fi
-fi
+    
+    # Attach image to loop device
+    echo "Using loop device $BLOCK"
+    if ! losetup $BLOCK $DISK; then
+        echo "Failed to setup loop device";
+        exit 1;
+    fi
+    
+    #   logical_start_sector num_sectors target_type target_args
+    # the formula for num_sectors is <size in gigs> * 1024^3 (gig in bytes) / 512 . 512 because:
+    #   Devices are created by loading a table that specifies a target 
+    #   for each sector (512 bytes) in the logical device.
+    echo "Creating partition table";
+    if ! echo "0 $[$SIZE*2097152] linear $BLOCK 0" | dmsetup create $MAPPER > /dev/null 2>&1; \
+            then
+        echo "Failed to create device $MAPPER mapper for $BLOCK";
+        exit 1;
+    fi
+    
+    echo "Creating mapper device for partition";
+    if ! kpartx -a /dev/mapper/$MAPPER; then
+        echo "Failed to create device for the /dev/mapper/$MAPPER partition";
+        exit 1;
+    fi
+    
+    echo "Copying mapper device to /dev/m$MAPPER";
+    if [ -e /dev/m$MAPPER ] || [ -e /dev/m$MAPPER\1 ]; then
+        echo "/dev/m$MAPPER or /dev/m$MAPPER\1 exist";
+        exit 1;
+    else
+        ln -s $(readlink -f /dev/mapper/$MAPPER) /dev/m$MAPPER;
+        ln -s $(readlink -f /dev/mapper/$MAPPER\1) /dev/m$MAPPER\1;
+    fi
+    
+    echo "Creating filesystem";
+    if ! mkfs -t $FSTYPE /dev/m$MAPPER\1 > /dev/null 2>&1; then
+        echo "Failed to create $FSTYPE on /dev/m$MAPPER";
+        exit 1;
+    fi
+    
+    if [ -e $CHROOT ]; then
+        echo "$CHROOT already exists. Moving on... ";
+    else
+        if ! mkdir -p $CHROOT; then
+            echo "Failed to create chroot directory $CHROOT";
+            exit 1;
+        fi
+    fi
+    
+    if ! echo "mount -o uid=$UID /dev/m$MAPPER\1 $CHROOT"; then
+        echo "Failed to mount $BLOCK on $CHROOT. Exiting.";
+        exit 1;
+    fi
+    
+    mkdir $CHROOT/{dev,proc,sys}
+    mkdir -p $CHROOT/boot/grub
+    mkdir -p $CHROOT/root/.ssh
+    
+    # schroot should take care of this, but i haven't looked into how to get
+    # multistrap to run inside schroot
+    mount -t proc proc $CHROOT/proc
+    mount -t sysfs sysfs $CHROOT/sys
+    mount --bind /dev $CHROOT/dev
+    
+    multistrap -f ./multistrap.conf
+SU
 
-if ! echo "mount -o uid=$UID /dev/m$MAPPER\1 $CHROOT" | sudo sh; then
-    echo "Failed to mount $BLOCK on $CHROOT. Exiting.";
-    exit 1;
-fi
-
-sudo mkdir $CHROOT/{dev,proc,sys}
-sudo mkdir -p $CHROOT/boot/grub
-sudo mkdir -p $CHROOT/root/.ssh
-
-# schroot should take care of this, but i haven't looked into how to get
-# multistrap to run inside schroot
-sudo mount -t proc proc $CHROOT/proc
-sudo mount -t sysfs sysfs $CHROOT/sys
-sudo mount --bind /dev $CHROOT/dev
-sudo mount -t devpts devpts $CHROOT/dev/pts
-
-sudo multistrap -f ./multistrap.config
-
-sudo rm -f $CHROOT/etc/resolv.conf
-sudo rm -f $CHROOT/etc/ssh/*key*
-sudo echo $(cat $HOME/.ssh/id_dsa.pub) $USER\@$HOST > $CHROOT/root/.ssh/authorized_keys
+echo $(cat $HOME/.ssh/id_dsa.pub) $USER\@$HOST > $CHROOT/root/.ssh/authorized_keys
 cp /etc/apt/apt.conf $CHROOT/etc/apt/apt.conf 2> /dev/null
 
-echo -n         > $CHROOT/etc/network/interfaces
-echo -n         > $CHROOT/etc/resolv.conf
-echo image      > $CHROOT/etc/hostname
-echo -n         > $CHROOT/etc/hosts
-echo "Etc/UTC"  > $CHROOT/etc/timezone
+schroot -d / -u root -c multistrap sh << CHROOT || exit 1
+    rm -f /etc/resolv.conf
+    rm -f /etc/ssh/*key*
+    
+    echo -n         > /etc/network/interfaces
+    echo -n         > /etc/resolv.conf
+    echo image      > /etc/hostname
+    echo -n         > /etc/hosts
+    echo "Etc/UTC"  > /etc/timezone
 
-schroot -d / -c multistrap locale-gen en_US.UTF-8
-schroot -d / -c multistrap dpkg-reconfigure -f noninteractive -a
-schroot -d / -c multistrap grub-install $BLOCK
-schroot -d / -c multistrap update-grub
+    locale-gen en_US.UTF-8
+    dpkg-reconfigure -f noninteractive -a
+
+    BOOTDIR=/boot/grub
+    UUID=$(blkid -p -o value -s UUID /dev/m$MAPPER\1)
+
+    cp /usr/lib/grub/i386-pc/* $BOOTDIR
+
+    echo "(hd0) /dev/m$MAPPER" > $BOOTDIR/device.map
+
+    echo "search.fs_uuid $UUID root " > $BOOTDIR/load.cfg
+    echo 'set prefix=(hd0,1)/boot/grub' >> $BOOTDIR/load.cfg
+    echo 'set root=(hd0,1)' >> $BOOTDIR/load.cfg
+
+    cat << BEGIN_GRUB_CFG | sed -e 's/^ *//g' > $BOOTDIR/grub.cfg
+        set default=0
+        set timeout=5
+        insmod part_msdos
+        insmod ext2
+    BEGIN_GRUB_CFG 
+
+    for i in /boot/vmlinu[xz]-* /vmlinu[xz]-* ; do
+        KVER=$(basename $i | cut -d- -f2-)
+        KDIR=$(dirname $i)
+        DEBVER=$(cat /etc/debian_version | tr -d '\n')
+
+        if [ -e $KDIR/initrd.img-$KVER ]; then
+            cat << GRUBCFG | sed -e 's/^ *//g' >> $BOOTDIR/grub.cfg
+                menuentry "DEBIAN $DEBVER Linux $KVER" {
+                    set root=(hd0,1)
+                    search --no-floppy --fs-uuid --set $UUID
+                    linux $i root=UUID=$UUID ro quiet splash
+                    initrd $KDIR/initrd.img-$KVER
+                }
+            GRUBCFG
+        fi
+    done
+
+    grub-setup -b boot.img -c core.img -r "(hd0,1)" --directory=$BOOTDIR \
+        --device-map=$BOOTDIR/device.map "(hd0)"
+
+CHROOT
 
 
 echo "Unmounting"
 sudo umount $CHROOT
-echo "Breaking down NBD"
-sudo nbd-client -d $BLOCK
 
 echo "Everything is done"
 
