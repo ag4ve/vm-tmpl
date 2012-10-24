@@ -237,8 +237,29 @@ sudo sh << CLEANUP || exit 1
     fi
 
     if ! umount $CHROOT ; then
-        echo "Failed to unmount $CHROOT";
-        exit 1;
+        echo "Failed to unmount $CHROOT. Lets see if we can kill processes accessing this drive.";
+        ANS='';
+        for i in $(fuser $CHROOT 2> /dev/null) ; do
+            ps -ef | awk -v pid=$i '{if ($2 == $pid) {print $0}}'
+            echo "Should we kill this process?";
+            read ANS;
+            if [ $(echo $ANS | awk '{ print tolower(substr($0,1,1)) }') != 'y' ]; then
+                if ! kill $i ; then
+                    echo "Failed to kill process. Manual intervention required";
+                    exit 1;
+                fi;
+                DEADTHING=1;
+            fi
+            ANS='';
+        done
+        if [ $DEADTHING == 1 ]; then
+            if ! umount $CHROOT ; then
+                echo "Still can not free resource. Manual intervention required";
+                exit 1;
+            fi
+        else
+            exit 1;
+        fi
     fi
 
 CLEANUP
