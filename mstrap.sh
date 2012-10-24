@@ -220,10 +220,6 @@ sudo sh << CLEANUP || exit 1
 
     echo "Clean up..."
     echo "Unmounting"
-    if ! umount $CHROOT/dev ; then
-        echo "Failed to unmount dev";
-        exit 1;
-    fi
 
     if ! umount $CHROOT/sys ; then
         echo "Failed to unmount sys";
@@ -232,6 +228,11 @@ sudo sh << CLEANUP || exit 1
 
     if ! umount $CHROOT/proc ; then
         echo "Failed to unmount proc";
+        exit 1;
+    fi
+
+    if ! umount -l $CHROOT/dev ; then
+        echo "Failed to unmount dev";
         exit 1;
     fi
 
