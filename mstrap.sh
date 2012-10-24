@@ -144,6 +144,7 @@ sudo sh << SU || exit 1
     mkdir $CHROOT/{dev,proc,sys}
     mkdir -p $CHROOT/boot/grub
     mkdir -p $CHROOT/root/.ssh
+    echo $(cat $HOME/.ssh/id_dsa.pub) $USER\@$HOST > $CHROOT/root/.ssh/authorized_keys
     
     # schroot should take care of this, but i haven't looked into how to get
     # multistrap to run inside schroot
@@ -152,12 +153,14 @@ sudo sh << SU || exit 1
     mount --bind /dev $CHROOT/dev
     
     multistrap -f ./multistrap.conf
+
+    mkdir -p $CHROOT/etc/apt
+    cp -a /etc/apt/apt.conf $CHROOT/etc/apt/apt.conf
+
 SU
 
-echo $(cat $HOME/.ssh/id_dsa.pub) $USER\@$HOST > $CHROOT/root/.ssh/authorized_keys
-cp /etc/apt/apt.conf $CHROOT/etc/apt/apt.conf 2> /dev/null
-
 schroot -d / -u root -c multistrap sh << CHROOT || exit 1
+
     rm -f /etc/resolv.conf
     rm -f /etc/ssh/*key*
     
@@ -178,7 +181,7 @@ schroot -d / -u root -c multistrap sh << CHROOT || exit 1
     echo "(hd0) /dev/m$MAPPER" > $BOOTDIR/device.map
 
     echo "search.fs_uuid $UUID root " > $BOOTDIR/load.cfg
-    echo 'set prefix=(hd0,1)/boot/grub' >> $BOOTDIR/load.cfg
+    echo 'set prefix=($root)/boot/grub' >> $BOOTDIR/load.cfg
     echo 'set root=(hd0,1)' >> $BOOTDIR/load.cfg
 
     cat << BEGIN_GRUB_CFG | sed -e 's/^ *//g' > $BOOTDIR/grub.cfg
@@ -205,14 +208,24 @@ schroot -d / -u root -c multistrap sh << CHROOT || exit 1
         fi
     done
 
+    grub-mkimage -c $BOOTDIR/load.cfg --output=$BOOTDIR/core.img \
+        --prefix=$BOOTDIR biosdisk ext2 part_msdos search_fs_uuid
+
     grub-setup -b boot.img -c core.img -r "(hd0,1)" --directory=$BOOTDIR \
         --device-map=$BOOTDIR/device.map "(hd0)"
 
 CHROOT
 
+sudo sh << CLEANUP || exit 1
 
-echo "Unmounting"
-sudo umount $CHROOT
+    echo "Clean up..."
+    echo "Unmounting"
+    umount $CHROOT/dev
+    umount $CHROOT/sys
+    umount $CHROOT/proc
+    umount $CHROOT
+
+CLEANUP
 
 echo "Everything is done"
 
