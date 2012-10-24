@@ -262,6 +262,21 @@ sudo sh << CLEANUP || exit 1
         fi
     fi
 
+    if ! rm /dev/m$MAPPER\1 && rm /dev/m$MAPPER ; then
+        echo "Failed to remove symbolic links to mapper";
+        exit 1;
+    fi
+
+    if ! kpartx -d /dev/mapper/$MAPPER\1 && kpartx -d /dev/mapper/$MAPPER ; then
+        echo "Failed to remove device mapper";
+        exit 1;
+    fi
+
+    if ! losetup -d $BLOCK ; then
+        echo "Failed to unbind $BLOCK";
+        exit 1;
+    fi
+
 CLEANUP
 
 echo "Everything is done"
