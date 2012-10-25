@@ -1,7 +1,7 @@
 #!/bin/bash
 
 DISK=./template.raw
-SIZE=10G
+SIZE=10
 FSTYPE=ext4
 MAPPER=sda
 BLOCK=$(losetup -f)
@@ -23,7 +23,7 @@ if [ ! -z $4 ]; then
 fi
 
 echo "File: $DISK"
-echo "Size: $SIZE"
+echo "Size: $SIZE GB"
 echo "FS type: $FSTYPE"
 echo "Mount point: $CHROOT"
 
@@ -43,29 +43,30 @@ if mountpoint -q $CHROOT; then
     exit 1;
 fi
 
-echo "Creating raw disk image...."
-dd if=/dev/zero of=$DISK bs=1 count=0 seek=$SIZE
+echo "Creating raw disk image....";
+dd if=/dev/zero of=$DISK bs=1 count=0 seek=$SIZE\G;
 
-echo "Superuser will be required for some things, hopefully we can cache the password long enough"
-sudo -v
+echo "Superuser will be required for some things, hopefully we can cache the password long enough";
+sudo -v;
 
-echo "Partitioning $DISK"
-parted -s $DISK mklabel msdos
-parted -s --align=none $DISK mkpart primary 64s 100%
+echo "Partitioning $DISK";
+parted -s $DISK mklabel msdos;
+parted -s --align=none $DISK mkpart primary 64s 100%;
+echo "Done partitioning";
 
-sudo sh << SU || exit 1
+sudo bash << \SU || exit 1
+    exec 9< /dev/fd/1
 
     # If chroot config exists, lets see if we want to make a backup
     if [ -e /etc/schroot/chroot.d/multistrap.conf ]; then
-        echo "Found chroot config. Make backup?";
-        read ANS;
+        read -u 9 "Found chroot config. Make backup? " ANS;
         if [ $(echo $ANS | awk '{ print tolower(substr($0,1,1)) }') != 'y' ]; then
             cp -f /etc/schroot/chroot.d/multistrap.conf ./schroot.bak-$(date +%Y%m%d%H%M%S);
         fi
     fi
 
     # create schroot config file for multistrap environment
-    cat << SCHROOTCONF | sed -e 's/^ *//g' > /etc/schroot/chroot.d/multistrap.conf
+    cat << \SCHROOTCONF | sed -e 's/^ *//g' > /etc/schroot/chroot.d/multistrap.conf
         [multistrap]
         description=Multistrap chroot config
         directory=$CHROOT
@@ -151,7 +152,7 @@ sudo sh << SU || exit 1
 
 SU
 
-schroot -d / -u root -c multistrap sh << CHROOT || exit 1
+schroot -d / -u root -c multistrap bash << \CHROOT || exit 1
 
     rm -f /etc/resolv.conf
     rm -f /etc/ssh/*key*
@@ -176,7 +177,7 @@ schroot -d / -u root -c multistrap sh << CHROOT || exit 1
     echo 'set prefix=($root)/boot/grub' >> $BOOTDIR/load.cfg
     echo 'set root=(hd0,1)' >> $BOOTDIR/load.cfg
 
-    cat << BEGIN_GRUB_CFG | sed -e 's/^ *//g' > $BOOTDIR/grub.cfg
+    cat << \BEGIN_GRUB_CFG | sed -e 's/^ *//g' > $BOOTDIR/grub.cfg
         set default=0
         set timeout=5
         insmod part_msdos
@@ -184,6 +185,7 @@ schroot -d / -u root -c multistrap sh << CHROOT || exit 1
     BEGIN_GRUB_CFG 
 
     for i in /boot/vmlinu[xz]-* /vmlinu[xz]-* ; do
+        echo "Found $i";
         KVER=$(basename $i | cut -d- -f2-)
         KDIR=$(dirname $i)
         DEBVER=$(cat /etc/debian_version | tr -d '\n')
@@ -208,10 +210,11 @@ schroot -d / -u root -c multistrap sh << CHROOT || exit 1
 
 CHROOT
 
-sudo sh << CLEANUP || exit 1
+sudo bash << \CLEANUP || exit 1
+    exec 9< /dev/fd/1;
 
-    echo "Clean up..."
-    echo "Unmounting"
+    echo "Clean up...";
+    echo "Unmounting";
 
     if ! umount $CHROOT/sys ; then
         echo "Failed to unmount sys";
@@ -233,8 +236,7 @@ sudo sh << CLEANUP || exit 1
         ANS='';
         for i in $(fuser $CHROOT 2> /dev/null) ; do
             ps -ef | awk -v pid=$i '{if ($2 == $pid) {print $0}}'
-            echo "Should we kill this process?";
-            read ANS;
+            read -u 9 "Should we kill this process?" ANS;
             if [ $(echo $ANS | awk '{ print tolower(substr($0,1,1)) }') != 'y' ]; then
                 if ! kill $i ; then
                     echo "Failed to kill process. Manual intervention required";
