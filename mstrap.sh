@@ -43,8 +43,8 @@ if mountpoint -q $CHROOT; then
     exit 1;
 fi
 
-echo "Creating qcow2 image...."
-dd if=/dev/zero of=$DISK $SIZE
+echo "Creating raw disk image...."
+dd if=/dev/zero of=$DISK bs=1 count=0 seek=$SIZE
 
 echo "Superuser will be required for some things, hopefully we can cache the password long enough"
 sudo -v
