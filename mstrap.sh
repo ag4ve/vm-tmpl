@@ -4,6 +4,7 @@ DISK=./template.raw
 SIZE=10G
 FSTYPE=ext4
 MAPPER=sda
+BLOCK=$(losetup -f)
 
 # mount point has to conform to schroot.conf
 CHROOT=/mnt/chroot
@@ -73,15 +74,6 @@ sudo sh << SU || exit 1
         type=plain
         users=$(whoami)
     SCHROOTCONF
-
-    # find free loop device
-    for BLOCK in $(find /dev -name "loop[0-9]*"); do 
-        echo "Testing $BLOCK"; 
-        if losetup $BLOCK > /dev/null 2>&1; then 
-            echo "$BLOCK OK"; 
-            break; 
-        fi 
-    done
     
     if [ -z $BLOCK ]; then
         echo "No unused NBD device found. Exiting.";
